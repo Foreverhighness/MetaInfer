@@ -56,10 +56,13 @@ export default function SADetail({ taskId }) {
       <div class="sa-tabs">
         <button class="sa-tab-btn ${activeTab === "dashboard" ? "active-tab" : ""}" onClick=${() => setActiveTab("dashboard")}>Dashboard</button>
         <button class="sa-tab-btn ${activeTab === "batch" ? "active-tab" : ""}" onClick=${() => setActiveTab("batch")}>Kernel Table</button>
+        <button class="sa-tab-btn ${activeTab === "layers" ? "active-tab" : ""}" onClick=${() => setActiveTab("layers")}>Decode Layers</button>
         <button class="sa-tab-btn ${activeTab === "hints" ? "active-tab" : ""}" onClick=${() => setActiveTab("hints")}>Hints</button>
       </div>
 
       ${activeTab === "dashboard" && html`<${Dashboard} summary=${summary} detail=${detail} mapping=${mapping} batchList=${batchList} activeBatch=${activeBatch} setActiveBatch=${setActiveBatch} />`}
+      ${activeTab === "layers" && detail && html`<${DecodeLayers} detail=${detail} />`}
+
       ${activeTab === "batch" && html`
         <div class="sa-batch-tabs">
           ${batchList.map((b) => html`
@@ -484,6 +487,83 @@ function RooflinePanel({ kernels, gpu }) {
         })}
       </div>
       <p class="sa-note">Ridge point: ${ridgePoint.toFixed(0)} ops/byte. Left of ridge = memory-bound. Right = compute-bound.</p>
+    </div>
+  `;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DECODE LAYERS TAB — per-layer timing + theoretical structure
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function DecodeLayers({ detail }) {
+  const lt = detail ? detail.layer_timing : null;
+  if (!lt) return html`<div class="sa-panel"><p>No layer timing data available.</p></div>`;
+
+  const layers = lt.per_layer_detail || [];
+  const perLayer = lt.per_layer_us || [];
+  const totalMs = (lt.total_per_step_us || 0) / 1000;
+  const maxTime = layers.length ? Math.max(...layers.map((l) => l.avg_us)) : 1;
+  const bs = lt.batch_size || "?";
+
+  // Theoretical layer structure for DeepSeek V4 Flash
+  const structure = [
+    { op: "RMSNorm", kernel: "rms_norm", category: "Norm" },
+    { op: "mHC pre", kernel: "mhc_pre_fast_4", category: "mHC" },
+    { op: "Q proj (wq)", kernel: "w8a8_scaled_mm", shape: "bs × hidden → q_lora_rank", category: "GEMM" },
+    { op: "K proj + RoPE", kernel: "w8a8_scaled_mm", shape: "bs × hidden → kv_lora_rank", category: "GEMM" },
+    { op: "Attn (CSA/HCA)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", category: "Attention" },
+    { op: "O proj (wo)", kernel: "w8a8_scaled_mm", shape: "q_lora_rank → hidden", category: "GEMM" },
+    { op: "mHC post", kernel: "mhc_post_tilelang", category: "mHC" },
+    { op: "RMSNorm", kernel: "rms_norm", category: "Norm" },
+    { op: "Gate (router)", kernel: "Cijk_*", shape: "hidden → num_experts", category: "GEMM" },
+    { op: "Shared up+gate", kernel: "fused_moe_kernel", shape: "hidden → intermediate", category: "MoE" },
+    { op: "Shared down", kernel: "Cijk_*", shape: "intermediate → hidden", category: "GEMM" },
+    { op: "Routed up+gate", kernel: "fused_moe_kernel", shape: "hidden × top_k → intermediate", category: "MoE" },
+    { op: "Routed down", kernel: "Cijk_*", shape: "intermediate × top_k → hidden", category: "GEMM" },
+  ];
+
+  return html`
+    <div class="sa-panel">
+      <h3>Decode Layer Timing — BS=${bs} | ${totalMs.toFixed(1)}ms/step | ${lt.num_steps} steps</h3>
+      <p class="sa-note">Measured via gaps between consecutive flash attention kernels (anchor method). First and last layers are partial.</p>
+      <div class="sa-layer-table-wrap">
+        <table class="sa-table sa-layer-table">
+          <thead><tr><th>Layer</th><th>Time μs</th><th>Time ms</th><th>Distribution</th></tr></thead>
+          <tbody>
+            ${layers.map((l) => {
+              const pct = l.avg_us / (lt.total_per_step_us || 1) * 100;
+              const barW = Math.max(pct / (100 / 43) * 100, 1); // normalize to avg layer width
+              return html`
+                <tr key=${l.layer}>
+                  <td class="sa-num">${l.layer}</td>
+                  <td class="sa-num">${l.avg_us.toFixed(0)}</td>
+                  <td class="sa-num">${(l.avg_us / 1000).toFixed(3)}</td>
+                  <td><div class="sa-layer-bar-wrap"><div class="sa-layer-bar" style="width:${barW}%"></div></div></td>
+                </tr>
+              `;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sa-panel">
+      <h3>Theoretical Layer Structure (DeepSeek V4 Flash)</h3>
+      <p class="sa-note">Per-layer operations with approximate shapes. Layer 0-1 use SWA, layers 2-42 alternate CSA/HCA.</p>
+      <table class="sa-table">
+        <thead><tr><th>#</th><th>Operation</th><th>Kernel</th><th>Shape</th><th>Category</th></tr></thead>
+        <tbody>
+          ${structure.map((s, i) => html`
+            <tr key=${i}>
+              <td class="sa-num">${i + 1}</td>
+              <td>${s.op}</td>
+              <td class="sa-kernel-name">${s.kernel}</td>
+              <td class="sa-sm">${s.shape || "—"}</td>
+              <td><span class="sa-cat">${s.category}</span></td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
     </div>
   `;
 }
