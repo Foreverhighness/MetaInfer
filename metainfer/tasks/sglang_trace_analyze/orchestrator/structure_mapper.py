@@ -171,20 +171,62 @@ def _infer_layer(
                 return f"layers/{m.group(1)}"
 
     # Fallback (no call stack): kernel name + CPU op heuristics
+    # Uses DeepSeek V4 architecture knowledge:
+    #   Each decoder layer = RMSNorm → MLA Attention → RMSNorm → MoE MLP
+    #   MoE layers: 1 shared expert + top-K routed experts
+    #   MLA: flash_fwd_splitkv_mla | MoE: fused_moe_kernel
+    #   Projections: CK GEMM (Cijk_*) or w8a8_scaled_mm (INT8 quantized)
+    #   MHC: mhc_pre/post — DeepSeek Sparse Attention (NSA/DSA)
+    #   TP communication: cross_device_reduce_2stage_pcie (vllm allreduce)
+
     if "flash_fwd" in name_lower or "flash_attn" in name_lower:
-        return "all_layers/attention"
+        return "layer_*/attn/mla"
+
     if "fused_moe" in name_lower or "moe" in cpu_lower:
-        return "moe_layers/experts"
+        return "layer_*/moe/experts"
+
     if name_lower.startswith("cijk_"):
-        return "all_layers/linear"
+        # CK GEMM — could be QKV projection, O projection, or MoE gate
+        if "attn" in cpu_lower or "attention" in cpu_lower or "flash" in cpu_lower:
+            return "layer_*/attn/proj"
+        if "moe" in cpu_lower or "expert" in cpu_lower:
+            return "layer_*/moe/gate"
+        return "layer_*/linear"
+
+    if "w8a8" in name_lower and "scaled_mm" in name_lower:
+        return "layer_*/linear_int8"
+
     if "rms_norm" in cpu_lower or "rmsnorm" in name_lower:
-        return "all_layers/norm"
-    if "reduce_kernel" in name_lower:
-        return "all_layers/allreduce"
-    if "allgather" in cpu_lower or "nccl" in name_lower:
-        return "all_layers/communication"
+        return "layer_*/norm"
+
+    if "mhc_pre" in name_lower:
+        return "layer_*/dsa/mhc_pre"
+    if "mhc_post" in name_lower:
+        return "layer_*/dsa/mhc_post"
+
+    if "cross_device_reduce" in name_lower or "reduce_kernel" in name_lower:
+        return "all_layers/tp_allreduce"
+
+    if "allgather" in cpu_lower:
+        return "all_layers/tp_communication"
+    if "nccl" in name_lower:
+        return "all_layers/tp_communication"
+
     if "elementwise" in name_lower or "vectorized" in name_lower:
-        return "all_layers/elementwise"
+        if "rms" in cpu_lower:
+            return "layer_*/norm"
+        if "moe" in cpu_lower or "expert" in cpu_lower:
+            return "layer_*/moe/activation"
+        return "layer_*/elementwise"
+
+    if "topk" in name_lower:
+        return "layer_*/moe/router"
+
+    if "rope" in cpu_lower or "hadamard" in name_lower:
+        return "layer_*/attn/rope"
+
+    if "quant" in name_lower or "quant" in cpu_lower:
+        return "layer_*/quant"
 
     return None
 
@@ -254,9 +296,9 @@ def _infer_op_type(kernel_name: str, call_stack: str, cpu_ops: list | None = Non
 
 
 def _op_type_to_category(op_type: str) -> str:
-    """Map an op_type to a display category."""
+    """Map an op_type to a display category. Includes DeepSeek V4-specific ones."""
     mapping = {
-        "Attention": "Attention",
+        "Attention": "MLA",          # DeepSeek V4: Multi-head Latent Attention
         "MoE": "MoE",
         "GEMM": "GEMM",
         "Norm": "Norm",
@@ -270,3 +312,17 @@ def _op_type_to_category(op_type: str) -> str:
         "ElementWise": "ElementWise",
     }
     return mapping.get(op_type, "Other")
+
+
+# DeepSeek V4 architecture reference (from gen_infer_framework knowledge base)
+# Structure per decoder layer:
+#   RMSNorm → MLA Attention (flash_fwd_splitkv_mla) → residual
+#   → RMSNorm → MoE MLP (shared expert + top-K routed, fused_moe_kernel) → residual
+# Key components:
+#   - MLA (Multi-head Latent Attention): compressed KV cache, flash_fwd_splitkv_mla
+#   - MoE: fine-grained, 1 shared expert + K routed from N, fused_moe_kernel
+#   - MHC (Multi-Head Cache): mhc_pre/post — DSA (DeepSeek Sparse Attention / NSA)
+#   - INT8 quantized weights: w8a8_scaled_mm for linear projections
+#   - CK GEMM (Cijk_*): composable_kernel library for bf16 GEMM on K100
+#   - cross_device_reduce_2stage_pcie: vllm-style TP allreduce
+#   - TP=8: 8-way tensor parallelism, allreduce per layer
