@@ -44,8 +44,10 @@ def read_batch_detail(
     fuse = _load_json(base / "fuse.json")
     if kernel_table is None and overlap is None and fuse is None:
         return None
+    layer_timing = _load_json(base / "layer_timing.json")
     return {
         "kernel_table": kernel_table,
         "overlap": overlap,
         "fuse": fuse,
+        "layer_timing": layer_timing,
     }

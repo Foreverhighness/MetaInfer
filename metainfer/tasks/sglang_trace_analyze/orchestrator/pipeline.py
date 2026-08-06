@@ -368,6 +368,8 @@ class Pipeline:
                     json.dumps(result["overlap"], indent=2))
                 (out_dir / "fuse.json").write_text(
                     json.dumps(result["fuse"], indent=2))
+                (out_dir / "layer_timing.json").write_text(
+                    json.dumps(result.get("layer_timing", {}), indent=2))
 
                 mfu_vals = [
                     k.get("mfu", 0) for k in result["kernel_table"].get("kernels", [])
@@ -683,6 +685,14 @@ class Pipeline:
             return map_base
         return None
 
+    def _model_num_layers(self) -> int:
+        """Return the number of transformer layers for the model being profiled."""
+        try:
+            from .model.deepseek.arch import DEEPSPEED_V4_ARCH
+            return DEEPSPEED_V4_ARCH.get("num_layers", 43)
+        except Exception:
+            return 43  # default V4-Flash
+
     def _build_mapping(self, trace_path: Path) -> List[Dict[str, Any]]:
         """Parse a trace file and build kernel→model-structure mapping
         using trace_parser + structure_mapper with CPU op correlation."""
@@ -834,7 +844,17 @@ class Pipeline:
             overlap["summary"]["cuda_graph_effective"] = True
         fuse = build_fuse_report(result_kernels, bs, stage)
 
-        return {"kernel_table": kernel_table, "overlap": overlap, "fuse": fuse}
+        # Layer timing analysis
+        from .engine.sglang.layer_timing import build_layer_timing_report
+        layer_timing = build_layer_timing_report(
+            trace_data, bs, stage,
+            num_layers=self._model_num_layers(),
+        )
+        print(f"[pipeline]     layer_timing: {layer_timing.get('steps_measured', 0)}/"
+              f"{layer_timing.get('num_layers', '?')} layers")
+
+        return {"kernel_table": kernel_table, "overlap": overlap, "fuse": fuse,
+                "layer_timing": layer_timing}
 
     def _llm_generate_hints(
         self,
