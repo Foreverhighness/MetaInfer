@@ -98,21 +98,31 @@ def _load_arch_from_md(md_path: Path) -> Dict[str, Any]:
     params = _parse_table(param_lines)
     kernel_map = _parse_kernel_map(kernel_lines)
 
+    def _int_or(key: str, default: int) -> int:
+        try:
+            return int(re.sub(r"[^0-9]", "", params.get(key, str(default))) or default)
+        except (ValueError, TypeError):
+            return default
+
     return {
         "family": "DeepSeek-V4",
-        "num_layers": int(params.get("num_layers", 61)),
-        "attention_type": params.get("attention_type", "mla"),
-        "moe_layers": int(params.get("moe_layers", 58)),
-        "shared_experts": int(params.get("shared_experts", 1)),
-        "routed_experts_per_token": int(params.get("top_k_experts", 8)),
+        "num_layers": _int_or("num_layers", 43),
+        "attention_type": params.get("attention_type", "hybrid"),
+        "moe_layers": _int_or("moe_layers", 43),
+        "shared_experts": _int_or("shared_experts", 1),
+        "routed_experts_per_token": _int_or("top_k_experts", 6),
         "quantization": params.get("quantization", "int8_flash_channel"),
-        "head_dim": int(params.get("head_dim", 192)),
-        "kv_lora_rank": int(params.get("kv_lora_rank", 512)),
-        "hidden_size": int(params.get("hidden_size", 7168)),
-        "intermediate_size": int(params.get("intermediate_size", 2048)),
+        "head_dim": _int_or("head_dim", 512),
+        "q_lora_rank": _int_or("q_lora_rank", 1024),
+        "o_lora_rank": _int_or("o_lora_rank", 1024),
+        "hidden_size": _int_or("hidden_size", 4096),
+        "intermediate_size": _int_or("intermediate_size", 2048),
         "mhc_enabled": True,
-        "mhc_pages": int(params.get("page_size", 256)),
-        "tp_size": int(params.get("tp_size", 8)),
+        "hc_mult": _int_or("hc_mult", 4),
+        "page_size": _int_or("page_size", 256),
+        "tp_size": _int_or("tp_size", 8),
+        "num_experts": _int_or("num_experts", 256),
+        "top_k_experts": _int_or("top_k_experts", 6),
         "kernel_map": kernel_map or _DEFAULT_ARCH["kernel_map"],
         "_source_md": str(md_path.relative_to(_NOTEBOOKS_DIR.parent)),
     }
@@ -121,19 +131,22 @@ def _load_arch_from_md(md_path: Path) -> Dict[str, Any]:
 # Fallback (if markdown is unavailable)
 _DEFAULT_ARCH = {
     "family": "DeepSeek-V4",
-    "num_layers": 61,
-    "attention_type": "mla",
-    "moe_layers": 58,
+    "num_layers": 43,
+    "attention_type": "hybrid",        # CSA + HCA + SWA
+    "moe_layers": 43,                  # all-MoE backbone
     "shared_experts": 1,
-    "routed_experts_per_token": 8,
+    "routed_experts_per_token": 6,     # top-6 from 256
     "quantization": "int8_flash_channel",
-    "head_dim": 192,
-    "kv_lora_rank": 512,
-    "hidden_size": 7168,
+    "head_dim": 512,                   # query head dim
+    "q_lora_rank": 1024,
+    "o_lora_rank": 1024,
+    "hidden_size": 4096,
     "intermediate_size": 2048,
     "mhc_enabled": True,
-    "mhc_pages": 256,
+    "hc_mult": 4,
+    "page_size": 256,
     "tp_size": 8,
+    "num_experts": 256,
     "kernel_map": {
         "flash_fwd_splitkv_mla": "attention/mla",
         "fused_moe_kernel": "moe/experts",
