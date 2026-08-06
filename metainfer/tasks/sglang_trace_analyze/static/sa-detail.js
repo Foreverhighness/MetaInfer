@@ -562,7 +562,7 @@ function DecodeLayers({ detail }) {
             `;
           })}
         </div>
-      </div>`}
+      </div>`
 
       ${/* Right: Flow diagram + selected layer detail */}
       html`<div class="sa-panel" style="max-height:600px;overflow-y:auto">
@@ -585,7 +585,7 @@ function DecodeLayers({ detail }) {
             `;
           })}
           <div class="sa-flow-end"></div>
-        </div>`}
+        </div>`
 
         ${sel && html`
           <div class="sa-layer-detail" style="margin-top:10px">
@@ -596,7 +596,7 @@ function DecodeLayers({ detail }) {
             </p>
           </div>
         `}
-      </div>`}
+      </div>`
     </div>
   `;
 }
