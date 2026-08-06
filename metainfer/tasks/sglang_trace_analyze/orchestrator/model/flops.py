@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .gpu_specs import GpuSpec
+from ..hw.gpu import GpuSpec
 
 
 def extract_ck_tile_dims(kernel_name: str) -> tuple | None:

@@ -1,6 +1,6 @@
 """GPU specs lookup tests."""
 
-from ..orchestrator.gpu_specs import GPU_SPECS, GpuSpec
+from ..orchestrator.hw.gpu import GPU_SPECS, GpuSpec
 
 
 def test_gpu_specs_known():

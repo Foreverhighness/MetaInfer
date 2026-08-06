@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from metainfer.orchestrator.requirements import req_field, req_field_int
 from metainfer.orchestrator.state import StateStore
 
-from .gpu_specs import GPU_SPECS, GpuSpec
+from .hw.gpu import GPU_SPECS, GpuSpec
 from .iteration_record import (
     AnalyzeRecord,
     BenchmarkRecord,
@@ -165,7 +165,7 @@ class Pipeline:
         config_path.write_text(json.dumps(bench_config, indent=2))
 
         # 2. Run mapping benchmark
-        script = Path(__file__).resolve().parent / "run_benchmark.py"
+        script = Path(__file__).resolve().parent / "engine/benchmark.py"
         print(f"[pipeline]   running mapping benchmark (batch={self.mapping_batch_size})...")
         try:
             subprocess.run(
@@ -268,7 +268,7 @@ class Pipeline:
         config_path = self.state_dir / "bench_config.json"
         config_path.write_text(json.dumps(bench_config, indent=2))
 
-        script = Path(__file__).resolve().parent / "run_benchmark.py"
+        script = Path(__file__).resolve().parent / "engine/benchmark.py"
 
         all_ok = True
         for bs in self.batch_sizes:
@@ -613,8 +613,8 @@ class Pipeline:
         if not traces:
             return
 
-        from .trace_parser import parse_trace, aggregate_kernels
-        from .flops_calculator import calculate_mfu
+        from .engine.parser import parse_trace, aggregate_kernels
+        from .model.flops import calculate_mfu
 
         print(f"[pipeline]   enriching TFLOPS from mapping trace")
         map_data = parse_trace(str(traces[0]))
@@ -633,7 +633,7 @@ class Pipeline:
                 kernel_by_corr[corr].append(e.get("name", ""))
 
         # Classify + calculate MFU
-        from .structure_mapper import _map_one as map_one
+        from .model.mapper import _map_one as map_one
         map_entries = []
         for k in map_kernels:
             name = k["kernel_name"]
@@ -686,8 +686,8 @@ class Pipeline:
     def _build_mapping(self, trace_path: Path) -> List[Dict[str, Any]]:
         """Parse a trace file and build kernel→model-structure mapping
         using trace_parser + structure_mapper with CPU op correlation."""
-        from .trace_parser import parse_trace, aggregate_kernels
-        from .structure_mapper import _map_one as map_one
+        from .engine.parser import parse_trace, aggregate_kernels
+        from .model.mapper import _map_one as map_one
 
         print(f"[pipeline]   parsing trace for mapping: {trace_path}")
         trace_data = parse_trace(str(trace_path))
@@ -747,11 +747,11 @@ class Pipeline:
     ) -> Dict[str, Any]:
         """Analyze a single trace file — uses trace_parser, structure_mapper,
         flops_calculator, overlap_detector, fuse_matcher."""
-        from .trace_parser import parse_trace, aggregate_kernels
-        from .structure_mapper import _map_one as map_one
-        from .flops_calculator import calculate_mfu
-        from .overlap_detector import build_overlap_report
-        from .fuse_matcher import build_fuse_report
+        from .engine.parser import parse_trace, aggregate_kernels
+        from .model.mapper import _map_one as map_one
+        from .model.flops import calculate_mfu
+        from .engine.overlap import build_overlap_report
+        from .engine.fuse import build_fuse_report
 
         print(f"[pipeline]     loading trace: {trace_path}")
         trace_data = parse_trace(str(trace_path))

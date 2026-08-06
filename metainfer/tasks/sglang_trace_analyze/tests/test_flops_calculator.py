@@ -1,7 +1,7 @@
 """FLOPs calculator tests."""
 
-from ..orchestrator.gpu_specs import GpuSpec
-from ..orchestrator.flops_calculator import (
+from ..orchestrator.hw.gpu import GpuSpec
+from ..orchestrator.model.flops import (
     _estimate_flops,
     _estimate_bytes,
     calculate_mfu,
@@ -74,5 +74,5 @@ def test_calculate_mfu_no_dims():
         }
     ]
     result = calculate_mfu(kernels, K100, batch_size=8, dtype="bf16")
-    assert result[0]["tflops_actual"] == 0
-    assert result[0]["mfu"] == 0
+    assert result[0]["tflops_actual"] is None
+    assert result[0]["mfu"] is None

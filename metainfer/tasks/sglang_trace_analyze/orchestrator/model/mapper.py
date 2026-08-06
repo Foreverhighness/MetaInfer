@@ -53,6 +53,7 @@ def _map_one(
     layer = _infer_layer(call_stack, kernel_name, config, cpu_ops)
     op_type = _infer_op_type(kernel_name, call_stack, cpu_ops)
 
+    confidence = "high"  # default
     has_cpu_hint = bool(cpu_ops)
 
     if not call_stack:
