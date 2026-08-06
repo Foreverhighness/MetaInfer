@@ -4,10 +4,6 @@ Spawns as a child of the WebUI server per task. Reads requirements, sets
 up state_dir / workspace_dir, and runs the linear phase pipeline:
 
     MAPPING -> BENCHMARK -> ANALYZE -> HINTS -> SUMMARIZE -> done
-
-Unlike gen_infer_framework, this task has no complex transition table —
-just five sequential phases with per-(bs, stage) iterations inside
-ANALYZE.
 """
 
 from __future__ import annotations
@@ -15,6 +11,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from .pipeline import Pipeline
+from metainfer.orchestrator.state import StateStore
+
+# Knowledge base for this task type. Lives inside the task package so the
+# whole thing is self-contained — every prompt that tells an agent "consult
+# the notebooks/ knowledge base" resolves to this path.
+_NOTEBOOKS_DIR = Path(__file__).resolve().parent.parent / "notebooks"
 
 from .pipeline import Pipeline
 from .iteration_record import AnalyzeRecord
