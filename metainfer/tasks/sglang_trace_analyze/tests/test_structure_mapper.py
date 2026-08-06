@@ -1,6 +1,6 @@
 """Structure mapper tests."""
 
-from ..orchestrator.model.mapper import (
+from ..orchestrator.model.deepseek.mapper import (
     _infer_layer,
     _infer_op_type,
     build_mapping,

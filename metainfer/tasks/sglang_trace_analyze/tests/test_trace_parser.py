@@ -1,7 +1,7 @@
 """Trace parser tests with synthetic trace fixtures."""
 
 import json
-from ..orchestrator.engine.parser import aggregate_kernels
+from ..orchestrator.engine.sglang.parser import aggregate_kernels
 
 
 def _synthetic_trace(kernels):

@@ -1,6 +1,6 @@
 """Fuse matcher tests."""
 
-from ..orchestrator.engine.fuse import _match_consecutive, match_fuse_patterns
+from ..orchestrator.engine.sglang.fuse import _match_consecutive, match_fuse_patterns
 
 
 def test_match_consecutive_found():

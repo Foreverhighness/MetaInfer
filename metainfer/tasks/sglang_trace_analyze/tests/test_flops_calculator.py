@@ -1,7 +1,7 @@
 """FLOPs calculator tests."""
 
 from ..orchestrator.hw.gpu import GpuSpec
-from ..orchestrator.model.flops import (
+from ..orchestrator.model.deepseek.flops import (
     _estimate_flops,
     _estimate_bytes,
     calculate_mfu,
