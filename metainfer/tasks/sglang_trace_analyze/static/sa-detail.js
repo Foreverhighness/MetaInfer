@@ -497,73 +497,106 @@ function RooflinePanel({ kernels, gpu }) {
 
 function DecodeLayers({ detail }) {
   const lt = detail ? detail.layer_timing : null;
+  const [selectedLayer, setSelectedLayer] = useState(null);
+
   if (!lt) return html`<div class="sa-panel"><p>No layer timing data available.</p></div>`;
 
   const layers = lt.per_layer_detail || [];
-  const perLayer = lt.per_layer_us || [];
   const totalMs = (lt.total_per_step_us || 0) / 1000;
-  const maxTime = layers.length ? Math.max(...layers.map((l) => l.avg_us)) : 1;
   const bs = lt.batch_size || "?";
 
-  // Theoretical layer structure for DeepSeek V4 Flash
+  // Determine layer type for coloring
+  function layerType(idx) {
+    if (idx <= 1) return "swa";
+    if (idx % 2 === 0) return "csa";
+    return "hca";
+  }
+  function layerLabel(idx) {
+    const t = layerType(idx);
+    return t === "swa" ? "SWA" : t === "csa" ? "CSA" : "HCA";
+  }
+  const typeColors = { swa: "#27ae60", csa: "#2980b9", hca: "#8e44ad" };
+
+  // Theoretical layer structure
   const structure = [
     { op: "RMSNorm", kernel: "rms_norm", category: "Norm" },
     { op: "mHC pre", kernel: "mhc_pre_fast_4", category: "mHC" },
-    { op: "Q proj (wq)", kernel: "w8a8_scaled_mm", shape: "bs × hidden → q_lora_rank", category: "GEMM" },
-    { op: "K proj + RoPE", kernel: "w8a8_scaled_mm", shape: "bs × hidden → kv_lora_rank", category: "GEMM" },
+    { op: "QKV proj", kernel: "w8a8_scaled_mm / Cijk_*", shape: "hidden → q_lora + kv_lora", category: "GEMM" },
+    { op: "RoPE", kernel: "rotary_embedding", shape: "q_lora_rank", category: "Transform" },
     { op: "Attn (CSA/HCA)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", category: "Attention" },
-    { op: "O proj (wo)", kernel: "w8a8_scaled_mm", shape: "q_lora_rank → hidden", category: "GEMM" },
+    { op: "O proj (wo)", kernel: "w8a8_scaled_mm / Cijk_*", shape: "q_lora_rank → hidden", category: "GEMM" },
     { op: "mHC post", kernel: "mhc_post_tilelang", category: "mHC" },
     { op: "RMSNorm", kernel: "rms_norm", category: "Norm" },
-    { op: "Gate (router)", kernel: "Cijk_*", shape: "hidden → num_experts", category: "GEMM" },
-    { op: "Shared up+gate", kernel: "fused_moe_kernel", shape: "hidden → intermediate", category: "MoE" },
-    { op: "Shared down", kernel: "Cijk_*", shape: "intermediate → hidden", category: "GEMM" },
-    { op: "Routed up+gate", kernel: "fused_moe_kernel", shape: "hidden × top_k → intermediate", category: "MoE" },
-    { op: "Routed down", kernel: "Cijk_*", shape: "intermediate × top_k → hidden", category: "GEMM" },
+    { op: "Gate router", kernel: "Cijk_*", shape: "hidden → num_experts", category: "GEMM" },
+    { op: "Shared expert (up+gate)", kernel: "fused_moe_kernel", shape: "hidden → intermediate", category: "MoE" },
+    { op: "Shared expert (down)", kernel: "Cijk_*", shape: "intermediate → hidden", category: "GEMM" },
+    { op: "Routed experts (up+gate)", kernel: "fused_moe_kernel", shape: "hidden × top_k → intermediate", category: "MoE" },
+    { op: "Routed experts (down)", kernel: "Cijk_*", shape: "intermediate × top_k → hidden", category: "GEMM" },
+    { op: "AllReduce (TP)", kernel: "cross_device_reduce_2stage", category: "Reduce" },
   ];
 
-  return html`
-    <div class="sa-panel">
-      <h3>Decode Layer Timing — BS=${bs} | ${totalMs.toFixed(1)}ms/step | ${lt.num_steps} steps</h3>
-      <p class="sa-note">Measured via gaps between consecutive flash attention kernels (anchor method). First and last layers are partial.</p>
-      <div class="sa-layer-table-wrap">
-        <table class="sa-table sa-layer-table">
-          <thead><tr><th>Layer</th><th>Time μs</th><th>Time ms</th><th>Distribution</th></tr></thead>
-          <tbody>
-            ${layers.map((l) => {
-              const pct = l.avg_us / (lt.total_per_step_us || 1) * 100;
-              const barW = Math.max(pct / (100 / 43) * 100, 1); // normalize to avg layer width
-              return html`
-                <tr key=${l.layer}>
-                  <td class="sa-num">${l.layer}</td>
-                  <td class="sa-num">${l.avg_us.toFixed(0)}</td>
-                  <td class="sa-num">${(l.avg_us / 1000).toFixed(3)}</td>
-                  <td><div class="sa-layer-bar-wrap"><div class="sa-layer-bar" style="width:${barW}%"></div></div></td>
-                </tr>
-              `;
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+  const sel = layers.find((l) => l.layer === selectedLayer);
 
-    <div class="sa-panel">
-      <h3>Theoretical Layer Structure (DeepSeek V4 Flash)</h3>
-      <p class="sa-note">Per-layer operations with approximate shapes. Layer 0-1 use SWA, layers 2-42 alternate CSA/HCA.</p>
-      <table class="sa-table">
-        <thead><tr><th>#</th><th>Operation</th><th>Kernel</th><th>Shape</th><th>Category</th></tr></thead>
-        <tbody>
-          ${structure.map((s, i) => html`
-            <tr key=${i}>
-              <td class="sa-num">${i + 1}</td>
-              <td>${s.op}</td>
-              <td class="sa-kernel-name">${s.kernel}</td>
-              <td class="sa-sm">${s.shape || "—"}</td>
-              <td><span class="sa-cat">${s.category}</span></td>
-            </tr>
-          `)}
-        </tbody>
-      </table>
+  return html`
+    <div class="sa-grid-2col" style="grid-template-columns:340px 1fr">
+      ${/* Left: Layer list with click-to-select */}
+      html`<div class="sa-panel" style="max-height:600px;overflow-y:auto">
+        <h3>Decode Layers — BS=${bs} | ${totalMs.toFixed(1)}ms/step</h3>
+        <p class="sa-note">Click a layer to highlight its ops.</p>
+        <div class="sa-layer-list">
+          ${layers.map((l) => {
+            const t = layerType(l.layer);
+            const color = typeColors[t];
+            const pct = l.avg_us / (lt.total_per_step_us || 1) * 100;
+            const isSel = selectedLayer === l.layer;
+            return html`
+              <div class="sa-layer-row ${isSel ? 'sa-layer-sel' : ''}"
+                   onClick=${() => setSelectedLayer(l.layer)}>
+                <span class="sa-layer-idx" style="color:${color}">${l.layer}</span>
+                <span class="sa-layer-type" style="color:${color}">${layerLabel(l.layer)}</span>
+                <div class="sa-layer-mini-bar-bg">
+                  <div class="sa-layer-mini-bar" style="width:${Math.max(pct*2, 2)}%;background:${color}"></div>
+                </div>
+                <span class="sa-layer-us">${l.avg_us.toFixed(0)}μs</span>
+              </div>
+            `;
+          })}
+        </div>
+      </div>`}
+
+      ${/* Right: Flow diagram + selected layer detail */}
+      html`<div class="sa-panel" style="max-height:600px;overflow-y:auto">
+        <h3>${sel ? `Layer ${sel.layer} (${layerLabel(sel.layer)}) — ${sel.avg_us.toFixed(0)}μs` : "Theoretical Structure — click a layer"}</h3>
+
+        ${/* Flow diagram */}
+        html`<div class="sa-flow">
+          ${structure.map((s, i) => {
+            const catColors = { Norm: "#3498db", mHC: "#9b59b6", GEMM: "#e67e22", Attention: "#e74c3c",
+              Transform: "#1abc9c", MoE: "#2ecc71", Reduce: "#c0392b" };
+            return html`
+              <div class="sa-flow-node">
+                <div class="sa-flow-connector ${i === 0 ? 'sa-flow-first' : ''}"></div>
+                <div class="sa-flow-box" style="border-left:3px solid ${catColors[s.category] || '#555'}">
+                  <span class="sa-flow-op">${s.op}</span>
+                  <span class="sa-flow-cat" style="color:${catColors[s.category] || '#888'}">${s.category}</span>
+                </div>
+                <div class="sa-flow-shape">${s.shape || ""}</div>
+              </div>
+            `;
+          })}
+          <div class="sa-flow-end"></div>
+        </div>`}
+
+        ${sel && html`
+          <div class="sa-layer-detail" style="margin-top:10px">
+            <p class="sa-note">
+              Layer ${sel.layer}: avg=${sel.avg_us.toFixed(0)}μs
+              [${sel.min_us.toFixed(0)}–${sel.max_us.toFixed(0)}μs range]
+              over ${sel.samples} samples
+            </p>
+          </div>
+        `}
+      </div>`}
     </div>
   `;
 }

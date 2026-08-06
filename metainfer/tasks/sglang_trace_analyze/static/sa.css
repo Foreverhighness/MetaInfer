@@ -162,6 +162,31 @@
 .sa-layer-bar-wrap { background: #2a2a2a; border-radius: 2px; height: 10px; width: 100%; }
 .sa-layer-bar { height: 100%; background: #4a90d9; border-radius: 2px; min-width: 2px; }
 
+/* Interactive layer list */
+.sa-layer-list { }
+.sa-layer-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px;
+  border-bottom: 1px solid #2a2a2a; cursor: pointer; border-radius: 2px; }
+.sa-layer-row:hover { background: #252525; }
+.sa-layer-sel { background: #1a2a3a !important; border-left: 3px solid #4a90d9; }
+.sa-layer-idx { font-size: 11px; font-weight: 700; min-width: 22px; font-variant-numeric: tabular-nums; }
+.sa-layer-type { font-size: 10px; min-width: 28px; }
+.sa-layer-mini-bar-bg { flex: 1; background: #2a2a2a; border-radius: 2px; height: 10px; }
+.sa-layer-mini-bar { height: 100%; border-radius: 2px; min-width: 2px; }
+.sa-layer-us { font-size: 10px; color: #888; min-width: 50px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Flow diagram */
+.sa-flow { }
+.sa-flow-node { display: flex; flex-direction: column; align-items: center; }
+.sa-flow-connector { width: 2px; height: 8px; background: #444; }
+.sa-flow-first { height: 4px; }
+.sa-flow-box { display: flex; justify-content: space-between; align-items: center;
+  background: #252525; border-radius: 3px; padding: 3px 8px; width: 100%;
+  max-width: 340px; }
+.sa-flow-op { font-size: 11px; color: #ddd; }
+.sa-flow-cat { font-size: 10px; font-weight: 600; }
+.sa-flow-shape { font-size: 9px; color: #666; margin: 1px 0; }
+.sa-flow-end { width: 2px; height: 6px; background: #444; margin: 0 auto; }
+
 /* MFU Histogram */
 .sa-hist { margin-top: 6px; }
 .sa-hist-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
