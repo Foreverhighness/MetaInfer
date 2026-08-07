@@ -572,30 +572,35 @@ function DecodeLayers({ detail }) {
 /* ── Layer Flow Diagram ── */
 
 function LayerFlowDiagram({ layer, ltype }) {
-  // Verified from trace call stack + sglang source:
-  //   _forward_shared_experts: 1/layer  (separate shared expert)
-  //   fused_experts_impl:      1/layer  (6 routed experts fused)
-  //   indexer kernels:         21/step  (CSA layers only, selects top-512 blocks)
+  // From sglang/srt/models/deepseek_v4.py DeepseekV4DecoderLayer.forward():
+  //   1.  mhc_fused_post_pre (mHC post from prev layer + mHC pre for attn + RMSNorm)
+  //   2.  self_attn (CSA/HCA/SWA)
+  //   3.  attn_tp_all_reduce  ← TP AllReduce after attention
+  //   4.  hc_post + hc_pre   (mHC post for attn + mHC pre for MoE + RMSNorm)
+  //   5.  MoE (gate+route + shared + routed + down)
+  //   6.  MoE-internal all_reduce or reduce_scatterv  ← TP AllReduce after MoE
+  //   return → next layer (outputs become prev_residual/post/comb)
 
   const attnOps = ltype === "CSA" ? [
-    { op: "Compressor (4:1)", kernel: "softmax-gated pooling", cat: "Attention" },
-    { op: "Lightning Indexer ★", kernel: "fused_norm_rope_indexer", cat: "Attention", highlight: true },
-    { op: "Sparse Attn (top-512)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", cat: "Attention" },
+    { op: "Compressor (4:1)", kernel: "softmax-gated pooling" },
+    { op: "Lightning Indexer ★", kernel: "fused_norm_rope_indexer", highlight: true },
+    { op: "Sparse Attn (top-512)", kernel: "flash_fwd_splitkv_mla_fp8_sparse" },
   ] : ltype === "HCA" ? [
-    { op: "Compressor (128:1)", kernel: "softmax-gated pooling", cat: "Attention" },
-    { op: "Dense Attn (all compressed)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", cat: "Attention" },
+    { op: "Compressor (128:1)", kernel: "softmax-gated pooling" },
+    { op: "Dense Attn (all compressed)", kernel: "flash_fwd_splitkv_mla_fp8_sparse" },
   ] : [
-    { op: "Sliding Window Attn", kernel: "flash_fwd_splitkv_mla (128 tok)", cat: "Attention" },
+    { op: "Sliding Window Attn", kernel: "flash_fwd (128 tok)" },
   ];
 
   const ops = [
-    { op: "mHC pre (+RMSNorm)", kernel: "mhc_pre_fast_4", cat: "mHC" },
-    ...attnOps,
-    { op: "mHC post + mHC pre", kernel: "mhc_fused_post_pre (+RMSNorm)", cat: "mHC" },
+    { op: "mHC post(prev) + pre(attn)", kernel: "mhc_fused_post_pre (+RMSNorm)", cat: "mHC" },
+    ...attnOps.map((o) => ({ ...o, cat: "Attention" })),
+    { op: "Attn AllReduce (TP)", kernel: "attn_tp_all_reduce / cross_device_reduce", cat: "Reduce" },
+    { op: "mHC post(attn) + pre(MoE)", kernel: "hc_post + hc_pre (+RMSNorm)", cat: "mHC" },
     { op: "Gate proj + Top-K route", kernel: "Cijk/w8a8 + radixFindKth + gatherTopK", cat: "GEMM" },
     { op: "Shared expert (up+down)", kernel: "_forward_shared_experts", cat: "MoE" },
     { op: "Routed experts ×6 (fused)", kernel: "fused_moe_kernel", cat: "MoE" },
-    { op: "TP AllReduce (×2)", kernel: "cross_device_reduce_2stage_pcie", cat: "Reduce" },
+    { op: "MoE AllReduce (TP)", kernel: "cross_device_reduce_2stage / reduce_scatterv", cat: "Reduce" },
   ];
 
   const catColors = { mHC: "#9b59b6", Attention: "#e74c3c", MoE: "#2ecc71", GEMM: "#e67e22",
