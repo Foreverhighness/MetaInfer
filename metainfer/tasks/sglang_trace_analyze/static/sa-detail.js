@@ -504,10 +504,14 @@ function DecodeLayers({ detail }) {
   const layers = lt.per_layer_detail || [];
   const totalMs = (lt.total_per_step_us || 0) / 1000;
   const bs = lt.batch_size || "?";
-  const colors = { swa: "#27ae60", csa: "#2980b9", hca: "#8e44ad" };
+  const colors = { SWA: "#27ae60", CSA: "#2980b9", HCA: "#8e44ad" };
 
-  function ltype(i) { return i <= 1 ? "swa" : i % 2 === 0 ? "csa" : "hca"; }
-  function llabel(t) { return t === "swa" ? "SWA" : t === "csa" ? "CSA" : "HCA"; }
+  function ltype(l) {
+    const t = (l && l.layer_type) ? l.layer_type : null;
+    if (t) return t;
+    const idx = (l != null && l.layer != null) ? l.layer : (typeof l === 'number' ? l : 0);
+    return idx <= 2 ? "SWA" : idx % 2 === 0 ? "CSA" : "HCA";
+  }
 
   const sel = layers.find((l) => l.layer === selLayer);
 
@@ -516,15 +520,15 @@ function DecodeLayers({ detail }) {
       <div class="sa-panel" style="max-height:600px;overflow-y:auto">
         <h3>Decode Layers — BS=${bs} | ${totalMs.toFixed(1)}ms/step</h3>
         ${layers.map((l) => {
-          const t = ltype(l.layer);
-          const c = colors[t];
+          const t = ltype(l);
+          const c = colors[t] || "#888";
           const pct = l.avg_us / (lt.total_per_step_us || 1) * 100;
           const active = selLayer === l.layer;
           return html`
             <div class="sa-layer-row ${active ? "sa-layer-sel" : ""}"
                  onClick=${() => setSelLayer(l.layer)} key=${l.layer}>
-              <span class="sa-layer-idx" style="color:${c}">${l.layer}</span>
-              <span class="sa-layer-type" style="color:${c}">${llabel(t)}</span>
+              <span class="sa-layer-idx" style="color:${c}">${l.layer + 1}</span>
+              <span class="sa-layer-type" style="color:${c}">${t}</span>
               <div class="sa-layer-mini-bar-bg"><div class="sa-layer-mini-bar" style="width:${Math.max(pct*2,2)}%;background:${c}"></div></div>
               <span class="sa-layer-us">${l.avg_us.toFixed(0)}μs</span>
             </div>
@@ -533,29 +537,33 @@ function DecodeLayers({ detail }) {
       </div>
 
       <div class="sa-panel" style="max-height:600px;overflow-y:auto">
-        <h3>${sel ? "Layer " + sel.layer + " — " + (sel.avg_us || 0).toFixed(0) + "μs" : "Click a layer for detail"}</h3>
+        <${LayerFlowDiagram} layer=${sel ? sel.layer : -1} ltype=${sel ? ltype(sel) : ""} />
+
         ${sel && html`
-          <p class="sa-note">Range: ${sel.min_us.toFixed(0)}–${sel.max_us.toFixed(0)}μs over ${sel.samples} samples</p>
+          <div class="sa-panel" style="margin-top:10px">
+            <h3>Layer ${sel.layer + 1} Detail (${ltype(sel)})</h3>
+            <p class="sa-note">avg=${sel.avg_us.toFixed(0)}μs [${sel.min_us.toFixed(0)}–${sel.max_us.toFixed(0)}μs] over ${sel.samples} samples</p>
+          </div>
         `}
-        <table class="sa-table" style="margin-top:8px">
+
+        <details style="margin-top:8px"><summary style="color:#888;font-size:12px;cursor:pointer">All layers timing (${layers.length}/43 measured)</summary>
+        <table class="sa-table" style="margin-top:4px">
           <thead><tr><th>#</th><th>Type</th><th>μs</th><th>ms</th></tr></thead>
           <tbody>${layers.map((l) => {
-            const t = ltype(l.layer);
+            const t = ltype(l);
             const active = selLayer === l.layer;
             return html`
               <tr key=${l.layer} onClick=${() => setSelLayer(l.layer)}
                   style="cursor:pointer;${active ? "background:#1a2a3a" : ""}">
-                <td class="sa-num">${l.layer}</td>
-                <td><span style="color:${colors[t]}">${llabel(t)}</span></td>
+                <td class="sa-num">${l.layer + 1}</td>
+                <td><span style="color:${colors[t]}">${t}</span></td>
                 <td class="sa-num">${l.avg_us.toFixed(0)}</td>
                 <td class="sa-num">${(l.avg_us / 1000).toFixed(3)}</td>
               </tr>
             `;
           })}</tbody>
         </table>
-
-        ${sel && html`<${LayerFlowDiagram} layer=${sel.layer} ltype=${llabel(ltype(sel.layer))} />`}
-        ${!sel && html`<${LayerFlowDiagram} layer=${-1} ltype="" />`}
+        </details>
       </div>
     </div>
   `;

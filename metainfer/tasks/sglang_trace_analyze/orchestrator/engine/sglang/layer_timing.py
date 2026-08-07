@@ -155,6 +155,7 @@ def build_layer_timing_report(
     batch_size: int,
     stage: str,
     num_layers: int = 43,
+    compress_ratios: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Produce the full layer_timing.json payload."""
     # Try to extract actual batch_size from annotations
@@ -168,5 +169,26 @@ def build_layer_timing_report(
     timing["batch_size"] = batch_size
     timing["stage"] = stage
     timing["batch_size_from_annotation"] = actual_bs is not None
+    timing["compress_ratios"] = compress_ratios or []
+
+    # Add layer type labels based on compress_ratios if available
+    if compress_ratios:
+        labels = []
+        for i in range(len(timing.get("per_layer_detail", []))):
+            if i < len(compress_ratios):
+                cr = compress_ratios[i]
+                if cr == 0:
+                    labels.append("SWA")
+                elif cr == 4:
+                    labels.append("CSA")
+                elif cr == 128:
+                    labels.append("HCA")
+                else:
+                    labels.append(f"CR{cr}")
+            else:
+                labels.append("?")
+        for i, detail in enumerate(timing.get("per_layer_detail", [])):
+            if i < len(labels):
+                detail["layer_type"] = labels[i]
 
     return timing

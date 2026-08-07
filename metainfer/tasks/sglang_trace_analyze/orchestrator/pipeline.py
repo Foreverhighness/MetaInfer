@@ -42,6 +42,18 @@ def _load_json(path: Path, default: Any = None) -> Any:
         return default
 
 
+def _read_compress_ratios(model_path: str) -> list:
+    """Read compress_ratios from the model's config.json."""
+    config_path = Path(model_path) / "config.json"
+    if not config_path.exists():
+        return []
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        return config.get("compress_ratios", [])
+    except (ValueError, OSError, json.JSONDecodeError):
+        return []
+
+
 def _parse_batch_sizes(raw: str) -> List[int]:
     """Parse comma-separated batch sizes, e.g. "1,4,8,16" → [1,4,8,16]."""
     return [int(x.strip()) for x in raw.split(",") if x.strip()]
@@ -688,10 +700,26 @@ class Pipeline:
     def _model_num_layers(self) -> int:
         """Return the number of transformer layers for the model being profiled."""
         try:
-            from .model.deepseek.arch import DEEPSPEED_V4_ARCH
-            return DEEPSPEED_V4_ARCH.get("num_layers", 43)
+            return len(self._model_compress_ratios())
         except Exception:
-            return 43  # default V4-Flash
+            return 43
+
+    def _model_compress_ratios(self) -> list:
+        """Return compress_ratios from the model config.json.
+
+        Falls back to a known pattern for DeepSeek V4 Flash:
+        ratio=0 (SWA, 3 layers), ratio=4 (CSA, 21 layers), ratio=128 (HCA, 20 layers).
+        """
+        cr = _read_compress_ratios(self.model_path)
+        if cr:
+            return cr
+        # Fallback: known pattern for DeepSeek V4 Flash
+        try:
+            from .model.deepseek.arch import DEEPSPEED_V4_ARCH
+            return DEEPSPEED_V4_ARCH.get("compress_ratios", [])
+        except Exception:
+            pass
+        return []
 
     def _build_mapping(self, trace_path: Path) -> List[Dict[str, Any]]:
         """Parse a trace file and build kernel→model-structure mapping
@@ -849,6 +877,7 @@ class Pipeline:
         layer_timing = build_layer_timing_report(
             trace_data, bs, stage,
             num_layers=self._model_num_layers(),
+            compress_ratios=self._model_compress_ratios(),
         )
         print(f"[pipeline]     layer_timing: {layer_timing.get('steps_measured', 0)}/"
               f"{layer_timing.get('num_layers', '?')} layers")
