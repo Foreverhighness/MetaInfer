@@ -514,7 +514,7 @@ function DecodeLayers({ detail }) {
   return html`
     <div class="sa-grid-2col" style="grid-template-columns:340px 1fr">
       <div class="sa-panel" style="max-height:600px;overflow-y:auto">
-        <h3>Decode Layers — ${bs} | ${totalMs.toFixed(1)}ms/step</h3>
+        <h3>Decode Layers — BS=${bs} | ${totalMs.toFixed(1)}ms/step</h3>
         ${layers.map((l) => {
           const t = ltype(l.layer);
           const c = colors[t];
@@ -538,7 +538,7 @@ function DecodeLayers({ detail }) {
           <p class="sa-note">Range: ${sel.min_us.toFixed(0)}–${sel.max_us.toFixed(0)}μs over ${sel.samples} samples</p>
         `}
         <table class="sa-table" style="margin-top:8px">
-          <thead><tr><th>Layer</th><th>Type</th><th>Time μs</th><th>Time ms</th></tr></thead>
+          <thead><tr><th>#</th><th>Type</th><th>μs</th><th>ms</th></tr></thead>
           <tbody>${layers.map((l) => {
             const t = ltype(l.layer);
             const active = selLayer === l.layer;
@@ -553,6 +553,51 @@ function DecodeLayers({ detail }) {
             `;
           })}</tbody>
         </table>
+
+        ${sel && html`<${LayerFlowDiagram} layer=${sel.layer} ltype=${llabel(ltype(sel.layer))} />`}
+        ${!sel && html`<${LayerFlowDiagram} layer=${-1} ltype="" />`}
+      </div>
+    </div>
+  `;
+}
+
+/* ── Layer Flow Diagram ── */
+
+function LayerFlowDiagram({ layer, ltype }) {
+  const ops = [
+    { op: "RMSNorm", kernel: "rms_norm", cat: "Norm", arrow: true },
+    { op: "mHC pre", kernel: "mhc_pre_fast_4", cat: "mHC", arrow: true },
+    { op: "QKV proj", kernel: "w8a8 / CK GEMM", cat: "GEMM", arrow: true },
+    { op: "RoPE", kernel: "rotary_embedding", cat: "Transform", arrow: true },
+    { op: "Attn (CSA/HCA)", kernel: "flash_fwd_splitkv_mla", cat: "Attention", arrow: true },
+    { op: "O proj (wo)", kernel: "w8a8 / CK GEMM", cat: "GEMM", arrow: true },
+    { op: "mHC post", kernel: "mhc_post_tilelang", cat: "mHC", arrow: true },
+    { op: "RMSNorm", kernel: "rms_norm", cat: "Norm", arrow: true },
+    { op: "Gate router", kernel: "CK GEMM", cat: "GEMM", arrow: true },
+    { op: "Shared up+gate+down", kernel: "fused_moe + CK GEMM", cat: "MoE", arrow: true },
+    { op: "Routed up+gate (×6)", kernel: "fused_moe_kernel", cat: "MoE", arrow: true },
+    { op: "Routed down (×6)", kernel: "CK GEMM", cat: "GEMM", arrow: true },
+    { op: "AllReduce (TP)", kernel: "cross_device_reduce", cat: "Reduce", arrow: false },
+  ];
+
+  const catColors = { Norm: "#3498db", mHC: "#9b59b6", GEMM: "#e67e22", Attention: "#e74c3c",
+    Transform: "#1abc9c", MoE: "#2ecc71", Reduce: "#c0392b" };
+
+  return html`
+    <div class="sa-panel" style="margin-top:10px">
+      <h3>Theoretical Layer Structure ${layer >= 0 ? "— Layer " + layer + " (" + ltype + ")" : "— click a layer"}</h3>
+      <div class="sa-flow-v">
+        ${ops.map((s, i) => html`
+          <div class="sa-fv-row" key=${i}>
+            <div class="sa-fv-num">${i + 1}</div>
+            <div class="sa-fv-box" style="border-left:3px solid ${catColors[s.cat] || "#555"}">
+              <span class="sa-fv-op">${s.op}</span>
+              <span class="sa-fv-cat" style="color:${catColors[s.cat] || "#888"}">${s.cat}</span>
+            </div>
+            <div class="sa-fv-kernel">${s.kernel}</div>
+            ${s.arrow ? html`<div class="sa-fv-arrow">↓</div>` : html`<div class="sa-fv-arrow" style="visibility:hidden">↓</div>`}
+          </div>
+        `)}
       </div>
     </div>
   `;

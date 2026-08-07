@@ -162,6 +162,17 @@
 .sa-layer-bar-wrap { background: #2a2a2a; border-radius: 2px; height: 10px; width: 100%; }
 .sa-layer-bar { height: 100%; background: #4a90d9; border-radius: 2px; min-width: 2px; }
 
+/* Layer Flow Diagram */
+.sa-flow-v { }
+.sa-fv-row { display: flex; align-items: center; gap: 4px; margin-bottom: 1px; }
+.sa-fv-num { font-size: 10px; color: #666; min-width: 18px; text-align: right; }
+.sa-fv-box { display: flex; justify-content: space-between; background: #252525;
+  border-radius: 2px; padding: 2px 8px; width: 240px; }
+.sa-fv-op { font-size: 11px; color: #ddd; }
+.sa-fv-cat { font-size: 10px; font-weight: 600; }
+.sa-fv-kernel { font-size: 9px; color: #555; width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+.sa-fv-arrow { font-size: 11px; color: #555; width: 16px; text-align: center; }
+
 /* Interactive layer list */
 .sa-layer-list { }
 .sa-layer-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px;
