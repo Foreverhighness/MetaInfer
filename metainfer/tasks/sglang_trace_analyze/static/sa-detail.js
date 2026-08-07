@@ -539,7 +539,7 @@ function DecodeLayers({ detail }) {
 
   return html`
     <div class="sa-grid-2col" style="grid-template-columns:340px 1fr">
-      ${/* Left: Layer list with click-to-select */}
+      ${/* Left: Layer list with click-to-select */""}
       html`<div class="sa-panel" style="max-height:600px;overflow-y:auto">
         <h3>Decode Layers — BS=${bs} | ${totalMs.toFixed(1)}ms/step</h3>
         <p class="sa-note">Click a layer to highlight its ops.</p>
@@ -564,11 +564,11 @@ function DecodeLayers({ detail }) {
         </div>
       </div>`
 
-      ${/* Right: Flow diagram + selected layer detail */}
+      ${/* Right: Flow diagram + selected layer detail */""}
       html`<div class="sa-panel" style="max-height:600px;overflow-y:auto">
         <h3>${sel ? `Layer ${sel.layer} (${layerLabel(sel.layer)}) — ${sel.avg_us.toFixed(0)}μs` : "Theoretical Structure — click a layer"}</h3>
 
-        ${/* Flow diagram */}
+        ${/* Flow diagram */""}
         html`<div class="sa-flow">
           ${structure.map((s, i) => {
             const catColors = { Norm: "#3498db", mHC: "#9b59b6", GEMM: "#e67e22", Attention: "#e74c3c",
