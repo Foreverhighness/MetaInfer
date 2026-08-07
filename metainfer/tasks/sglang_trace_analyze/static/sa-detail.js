@@ -572,24 +572,21 @@ function DecodeLayers({ detail }) {
 /* ── Layer Flow Diagram ── */
 
 function LayerFlowDiagram({ layer, ltype }) {
+  // From sglang/srt/models/deepseek_v4.py DeepseekV4DecoderLayer.forward()
+  // and verified against actual torch profiler trace (cont-211756):
+  //   - fused_moe_kernel: ~2 calls/layer (handles all experts fused)
+  //   - CK GEMM kernels: gate proj + down proj for shared+routed
   const ops = [
-    { op: "RMSNorm", kernel: "rms_norm", cat: "Norm", arrow: true },
-    { op: "mHC pre", kernel: "mhc_pre_fast_4", cat: "mHC", arrow: true },
-    { op: "QKV proj", kernel: "w8a8 / CK GEMM", cat: "GEMM", arrow: true },
-    { op: "RoPE", kernel: "rotary_embedding", cat: "Transform", arrow: true },
-    { op: "Attn (CSA/HCA)", kernel: "flash_fwd_splitkv_mla", cat: "Attention", arrow: true },
-    { op: "O proj (wo)", kernel: "w8a8 / CK GEMM", cat: "GEMM", arrow: true },
-    { op: "mHC post", kernel: "mhc_post_tilelang", cat: "mHC", arrow: true },
-    { op: "RMSNorm", kernel: "rms_norm", cat: "Norm", arrow: true },
-    { op: "Gate router", kernel: "CK GEMM", cat: "GEMM", arrow: true },
-    { op: "Shared up+gate+down", kernel: "fused_moe + CK GEMM", cat: "MoE", arrow: true },
-    { op: "Routed up+gate (×6)", kernel: "fused_moe_kernel", cat: "MoE", arrow: true },
-    { op: "Routed down (×6)", kernel: "CK GEMM", cat: "GEMM", arrow: true },
-    { op: "AllReduce (TP)", kernel: "cross_device_reduce", cat: "Reduce", arrow: false },
+    { op: "mHC pre (+RMSNorm)", kernel: "mhc_pre_fast_4 / mhc_pre_tilelang", cat: "mHC" },
+    { op: "Attn (CSA/HCA)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", cat: "Attention" },
+    { op: "mHC post + mHC pre (+RMSNorm)", kernel: "mhc_fused_post_pre", cat: "mHC" },
+    { op: "Gate + Top-K route", kernel: "Cijk_* / w8a8 + radixFindKth + gatherTopK", cat: "GEMM" },
+    { op: "Fused MoE (all experts)", kernel: "fused_moe_kernel (×2: up+gate, down)", cat: "MoE" },
+    { op: "TP AllReduce", kernel: "cross_device_reduce_2stage_pcie", cat: "Reduce" },
   ];
 
-  const catColors = { Norm: "#3498db", mHC: "#9b59b6", GEMM: "#e67e22", Attention: "#e74c3c",
-    Transform: "#1abc9c", MoE: "#2ecc71", Reduce: "#c0392b" };
+  const catColors = { mHC: "#9b59b6", Attention: "#e74c3c", MoE: "#2ecc71", GEMM: "#e67e22",
+    Reduce: "#c0392b" };
 
   return html`
     <div class="sa-panel" style="margin-top:10px">
