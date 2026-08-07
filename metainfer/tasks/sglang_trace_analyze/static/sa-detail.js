@@ -572,17 +572,30 @@ function DecodeLayers({ detail }) {
 /* ── Layer Flow Diagram ── */
 
 function LayerFlowDiagram({ layer, ltype }) {
-  // From sglang/srt/models/deepseek_v4.py DeepseekV4DecoderLayer.forward()
-  // and verified against actual torch profiler trace (cont-211756):
-  //   - fused_moe_kernel: ~2 calls/layer (handles all experts fused)
-  //   - CK GEMM kernels: gate proj + down proj for shared+routed
+  // Verified from trace call stack + sglang source:
+  //   _forward_shared_experts: 1/layer  (separate shared expert)
+  //   fused_experts_impl:      1/layer  (6 routed experts fused)
+  //   indexer kernels:         21/step  (CSA layers only, selects top-512 blocks)
+
+  const attnOps = ltype === "CSA" ? [
+    { op: "Compressor (4:1)", kernel: "softmax-gated pooling", cat: "Attention" },
+    { op: "Lightning Indexer ★", kernel: "fused_norm_rope_indexer", cat: "Attention", highlight: true },
+    { op: "Sparse Attn (top-512)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", cat: "Attention" },
+  ] : ltype === "HCA" ? [
+    { op: "Compressor (128:1)", kernel: "softmax-gated pooling", cat: "Attention" },
+    { op: "Dense Attn (all compressed)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", cat: "Attention" },
+  ] : [
+    { op: "Sliding Window Attn", kernel: "flash_fwd_splitkv_mla (128 tok)", cat: "Attention" },
+  ];
+
   const ops = [
-    { op: "mHC pre (+RMSNorm)", kernel: "mhc_pre_fast_4 / mhc_pre_tilelang", cat: "mHC" },
-    { op: "Attn (CSA/HCA)", kernel: "flash_fwd_splitkv_mla_fp8_sparse", cat: "Attention" },
-    { op: "mHC post + mHC pre (+RMSNorm)", kernel: "mhc_fused_post_pre", cat: "mHC" },
-    { op: "Gate + Top-K route", kernel: "Cijk_* / w8a8 + radixFindKth + gatherTopK", cat: "GEMM" },
-    { op: "Fused MoE (all experts)", kernel: "fused_moe_kernel (×2: up+gate, down)", cat: "MoE" },
-    { op: "TP AllReduce", kernel: "cross_device_reduce_2stage_pcie", cat: "Reduce" },
+    { op: "mHC pre (+RMSNorm)", kernel: "mhc_pre_fast_4", cat: "mHC" },
+    ...attnOps,
+    { op: "mHC post + mHC pre", kernel: "mhc_fused_post_pre (+RMSNorm)", cat: "mHC" },
+    { op: "Gate proj + Top-K route", kernel: "Cijk/w8a8 + radixFindKth + gatherTopK", cat: "GEMM" },
+    { op: "Shared expert (up+down)", kernel: "_forward_shared_experts", cat: "MoE" },
+    { op: "Routed experts ×6 (fused)", kernel: "fused_moe_kernel", cat: "MoE" },
+    { op: "TP AllReduce (×2)", kernel: "cross_device_reduce_2stage_pcie", cat: "Reduce" },
   ];
 
   const catColors = { mHC: "#9b59b6", Attention: "#e74c3c", MoE: "#2ecc71", GEMM: "#e67e22",
@@ -595,7 +608,7 @@ function LayerFlowDiagram({ layer, ltype }) {
         ${ops.map((s, i) => html`
           <div class="sa-fv-row" key=${i}>
             <div class="sa-fv-num">${i + 1}</div>
-            <div class="sa-fv-box" style="border-left:3px solid ${catColors[s.cat] || "#555"}">
+            <div class="sa-fv-box ${s.highlight ? "sa-fv-hl" : ""}" style="border-left:3px solid ${catColors[s.cat] || "#555"}">
               <span class="sa-fv-op">${s.op}</span>
               <span class="sa-fv-cat" style="color:${catColors[s.cat] || "#888"}">${s.cat}</span>
             </div>

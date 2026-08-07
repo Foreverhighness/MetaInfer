@@ -172,6 +172,7 @@
 .sa-fv-cat { font-size: 10px; font-weight: 600; }
 .sa-fv-kernel { font-size: 9px; color: #555; width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
 .sa-fv-arrow { font-size: 11px; color: #555; width: 16px; text-align: center; }
+.sa-fv-hl { background: #2a2a20 !important; border-left-color: #f1c40f !important; }
 
 /* Interactive layer list */
 .sa-layer-list { }
