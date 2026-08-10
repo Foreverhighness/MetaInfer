@@ -108,7 +108,7 @@ class Pipeline:
 
     def run(self) -> None:
         """Run the full pipeline."""
-        run, _ = self.store.get_or_create_run(task_id=self.req.get("task_id", "task"))
+        run, resumed = self.store.init_or_resume(task_id=self.req.get("task_id", "task"))
         phase = run.current_phase if run.current_phase not in ("idle", "") else "mapping"
 
         while phase not in ("done", "failed"):
