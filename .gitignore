@@ -18,3 +18,9 @@ iterations/
 .vscode/
 .idea/
 .DS_Store
+
+# Local runtime data (filesystem-as-database state)
+nodes/
+
+# Claude Code session artifacts
+.claude/
